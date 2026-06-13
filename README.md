@@ -1,4 +1,5 @@
-# Predicting ICU Delirium Onset from Time Series Using a Patch-Based Graph Neural Network
+# TIDE: Temporal Irregular Delirium Encoder
+## Predicting ICU Delirium Onset from Time Series Using a Patch-Based Graph Neural Network
 
 Note: Work still ongoing - exploring interpretability analyses
 
