@@ -1,5 +1,5 @@
-# ICU Delirium Onset Predictor
-## Predicting ICU Delirium Onset from Time Series Using a Patch-Based Graph Neural Network
+# PULSED: Patch-based Understanding of Longitudinal Signals for EHR Delirium Prediction
+## Predicting ICU Delirium Onset from Time Series Using a Lightweight Patch-Based Graph Neural Network on MIMIC-IV
 
 Note: Work still ongoing - exploring interpretability analyses
 
