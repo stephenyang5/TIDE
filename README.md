@@ -1,131 +1,85 @@
-# ICU Delirium Onset Prediction with T-PatchGNN
+# Predicting ICU Delirium Onset from Time Series Using a Patch-Based Graph Neural Network
 
-This project predicts ICU delirium onset from the first 24 hours of physiological monitoring data by adapting T-PatchGNN — an irregular multivariate time-series architecture from ICML 2024 — for binary classification on MIMIC-IV. The approach is motivated by two key readings: Zhang et al. (2024) introduce T-PatchGNN, which segments sparse, irregularly-sampled time series into fixed-size patches and processes them through a combination of time-aware convolution (TTCN), per-patch adaptive graph construction, and intra-series Transformer attention, making it well-suited to the heterogeneous rhythms of ICU charting; and the DeLLiriuM paper (2025) establishes the clinical benchmark (AUROC ~82.5 via an LLM, vs. ~78.1 for structured-EHR baselines) and mandates the precise cohort criteria and label definition used here — delirium onset is a CAM-ICU-positive assessment with RASS ≥ −3 occurring after the first 24 hours, excluding patients with prevalent delirium, early death, dementia, or TBI. The full pipeline covers cohort extraction from MIMIC-IV, 54-feature engineering across vitals, labs, and sedative/vasopressor drugs, 8-hour patch construction with faithful observation masking, class-weighted training, and evaluation with bootstrap confidence intervals.
+Note: Work still ongoing - exploring interpretability analyses
 
-## Readings
+---
+I developed an end-to-end machine learning system that predicts ICU delirium onset from the first 24 hours of physiological monitoring data in MIMIC-IV. The project adapts T-PatchGNN an irregular multivariate time series architecture.
 
-| File | Description |
-|------|-------------|
-| `readings/zhang24bw.pdf` | The T-PatchGNN paper (Zhang et al., ICML 2024) introducing the patch-based irregular multivariate time-series architecture that this project adapts for delirium classification. |
-| `readings/nihpp-rs7216692v1.pdf` | The DeLLiriuM paper (2025) defining the clinical benchmark, delirium label (CAM-ICU + RASS ≥ −3), DeLLiriuM-compliant cohort exclusion criteria, and SOTA AUROC targets. |
-| `readings/README.md` | Detailed implementation notes covering the architecture, cohort criteria, feature vocabulary, training protocol, and paper-to-code mappings. |
+Beyond model training, I engineered a reproducible data pipeline on 26,000+ ICU stays, diagnosed and quantified leakage in assessment features, implemented classical baselines for fair comparison, and am currently developing an interpretability suite to validate that the model learns clinically useful signals.
 
-## Source: Data Pipeline
+---
 
-| File | Description |
-|------|-------------|
-| `src/mimic_paths.py` | Centralizes MIMIC-IV path resolution, reading from `/oscar/data/shared/ursa/mimic-iv` or a `MIMIC_ROOT` environment variable, with helpers for each module (ICU, HOSP, ED, NOTE). |
-| `src/cohort.py` | Builds the DeLLiriuM-compliant patient cohort by merging `icustays`, `admissions`, and `patients`, then enforcing criteria: first ICU stay only, age ≥ 18, LOS ≥ 24 h, no death within 48 h, and optional ICD-based delirium labeling. |
-| `src/build_cohort.py` | CLI wrapper for `cohort.py` that scans `diagnoses_icd` for delirium-related ICD codes and writes the cohort to a compressed CSV. |
-| `src/feature_vocab.py` | Defines the canonical, immutably ordered list of 54 features (14 chart, 23 labs, 17 drugs) and the `NAME_TO_IDX` mapping used for consistent tensor indexing throughout the project. |
-| `src/data/patch_dataset.py` | Implements `ICUPatchDataset`, which converts long-format hourly features into `(V, P, L)` patch tensors with three-level masking (point, patch, stay), computes train-split-only min-max normalization, and provides `collate_patches()` for dynamic-length batching. |
+## The Clinical Problem
 
-## Source: Model Architecture
+ICU delirium affects roughly 1 in 3 critically ill patients and is linked to longer stays, higher mortality, and long-term cognitive impairment. Early prediction from routine EHR data could support proactive intervention, but the task is difficult:
 
-| File | Description |
-|------|-------------|
-| `src/models/time_embedding.py` | Implements `LearnableTimeEmbedding`, mapping continuous observation timestamps in [0, 1] to a fixed-dimensional representation via a learnable linear term plus sinusoidal periodic terms. |
-| `src/models/ttcn.py` | Implements `TTCN` (Time-aware Temporal Convolutional Network), the meta-filter module that generates adaptive convolution kernels conditioned on patch content and applies them with softmax-masked aggregation over variable-length patches. |
-| `src/models/patch_encoder.py` | Implements `PatchTTCNEncoder`, combining `LearnableTimeEmbedding` and `TTCN` to encode raw `(B, V, P, L)` input tensors into `(B, V, P, D)` patch embeddings, with observation masks concatenated to the output. |
-| `src/models/gcn.py` | Provides graph convolution building blocks — `NConv` (node-wise einsum convolution), `Conv1x1` (channel-mixing MLP), and `GCN` — supporting multi-order diffusion for the adaptive inter-series graph layer. |
-| `src/models/positional_encoding.py` | Provides standard sinusoidal `PositionalEncoding` for the Transformer operating over the patch sequence dimension. |
-| `src/models/temporal_adaptive_stack.py` | Implements `TemporalAdaptiveGNNStack`, stacking `n_layer` blocks that alternate between a `TransformerEncoder` for intra-series (temporal) dependencies and an adaptive GCN with dynamically gated per-patch adjacency matrices for inter-series (cross-variable) dependencies. |
-| `src/models/delirium_backbone.py` | Assembles the full model: `DeliriumTPatchBackbone` chains `PatchTTCNEncoder` → `TemporalAdaptiveGNNStack`, and `DeliriumClassifier` adds masked mean-pooling over patches and variables, dropout, and a linear head trained with class-weighted `BCEWithLogitsLoss`. |
+- Irregular sampling: vitals, labs, and drug infusions are recorded at different cadences.
+- Severe class imbalance: delirium prevalence is ~7–13% depending on cohort definition.
+- Label complexity: delirium requires both a positive CAM-ICU screen and an assessable sedation level (RASS >= −3), assessed in structured intervals after an initial observation window.
 
-## Training
+The task was framed to match published standards - predict onset from hours 0–24, excluding patients who already have delirium, are comatose, or lack sufficient early data.
 
-| File | Description |
-|------|-------------|
-| `src/train.py` | End-to-end training script performing stratified 80/10/10 splits, train-set normalization, class-weighted BCE loss, Adam optimization with `ReduceLROnPlateau`, early stopping on validation AUROC, and final test evaluation with 200-iteration bootstrap confidence intervals. |
+---
 
-## Tests
+## What was built
 
-| File | Description |
-|------|-------------|
-| `tests/test_patch_encoder.py` | Unit tests for `PatchTTCNEncoder` covering output shapes, gradient flow, dataset collation, and the effect of pre-LOCF data on the faithful `point_mask`. |
-| `tests/test_temporal_stack.py` | Unit tests for `TemporalAdaptiveGNNStack`, `DeliriumTPatchBackbone`, and `DeliriumClassifier`, verifying shapes, gradients, and masked pooling behavior on synthetic data. |
+### 1. Data pipeline
 
-## Notebooks
+| Component | Function |
+|-----------|--------------|
+| `src/cohort.py` | Demographic cohort: first ICU stay, age >= 18, LOS >= 24 h, early-death and comorbidity exclusions |
+| `src/features.py` | 57-feature extraction (vitals, labs, sedatives/vasopressors) with label-based drug ID resolution, hourly aggregation, and honest LOCF imputation |
+| `src/build_features.py` | End-to-end CLI building feature set |
+| `src/data/patch_dataset.py` | Converts long-format hourly data into (V, P, L) patch tensors with three-level masking (point / patch / stay) |
 
-| File | Description |
-|------|-------------|
-| `01_cohort_extraction.ipynb` | Runs the full data pipeline: loads MIMIC-IV tables, applies DeLLiriuM cohort criteria, extracts all 54 features from chart/lab/drug tables, applies LOCF, and writes `features_hourly.csv` and `features_hourly_prelocf.csv`. |
-| `02_eda.ipynb` | Exploratory data analysis of patient demographics, feature distributions, missingness patterns, and class balance in the extracted cohort. |
-| `03_table1.ipynb` | Generates Table 1 baseline characteristics stratified by delirium label for clinical reporting. |
-| `04_train_eval.ipynb` | Orchestrates model training (if not using the CLI) and visualizes results including ROC curves, precision-recall curves, and confusion matrices. |
+Cohort: 26,345 ICU stays, 3,460 positive (13.1% prevalence)
 
-## Data Files
+### 2. Deep learning model (~70K parameters)
 
-| File | Description |
-|------|-------------|
-| `cohort.csv` | Patient cohort after DeLLiriuM-compliant filtering, with one row per ICU stay and columns for `stay_id`, `label`, demographics, and `los_hours`. |
-| `features_hourly.csv` | Long-format ICU observations (columns: `stay_id`, `hour_offset`, `feature_name`, `value`) after LOCF imputation; this is the primary model input. |
-| `features_hourly_prelocf.csv` | Same schema as `features_hourly.csv` but before LOCF, loaded by `ICUPatchDataset` to construct the faithful `point_mask` distinguishing real observations from filled values. |
-| `raw_features_extracted.csv` | Intermediate raw feature extraction output before any imputation or processing, retained for debugging and auditing. |
-| `results/table1/table1_baseline_by_label.csv` | Summary statistics table of baseline patient characteristics stratified by delirium label, generated by `03_table1.ipynb`. |
+Adapted T-PatchGNN for binary classification as a more lightweight and structure option comparing to DeLLiriuM ~ 345M parameters hoping to achieve comparable performance.
 
-## Configuration
-
-| File | Description |
-|------|-------------|
-| `CLAUDE.md` | Claude Code project guidance including architecture notes, data pipeline details, paper-to-code mappings, and implementation constraints for AI-assisted development. |
-
-## How to Run the Pipeline
-
-### Prerequisites
-
-- Access to the Oscar HPC cluster
-- MIMIC-IV data at `/oscar/data/shared/ursa/mimic-iv` (or set `MIMIC_ROOT` env var)
-- A Python virtual environment with PyTorch, scikit-learn, pandas, and Jupyter installed
-
-### 1. Start an interactive GPU session
-
-```bash
-interact -q gpu -g 1 -m 20g -n 4 -t 12:00:00
+```
+Raw ICU observations (irregular, multivariate)
+    - 8-hour patches per variable (P=3 for a 24h window)
+    - TTCN meta-filter encoder (handles variable-length patches + observation masks)
+    - Transformer (intra-series temporal dependencies)
+    - Adaptive GCN (inter-series correlations)
+    - Masked mean pooling -> classification head
 ```
 
-### 2. Build the patient cohort (run once)
+Design choices:
+- `point_mask` from pre-LOCF data so the model distinguishes real observations from forward-filled gaps
+- Train-split-only normalization to prevent leakage
+- Class-weighted BCE loss for ~13% positive rate
 
-```bash
-python -m src.build_cohort --min-los-hours 24 -o cohort.csv
-```
+---
 
-Applies exclusion criteria and writes `cohort.csv` with binary delirium labels.
+## Results held-out test set n = 2,635
 
-### 3. Extract features
+Single stratified split (seed 42). Bootstrap 95% CIs from 200 iterations.
 
-Open and run `01_cohort_extraction.ipynb` to extract 54 features from MIMIC-IV chart, lab, and drug tables and produce:
-- `features_hourly.csv` — post-LOCF observations used for training
-- `features_hourly_prelocf.csv` — pre-LOCF observations used for faithful masking
+### T-PatchGNN deep model (`src/train.py`)
 
-### 4. Explore the data (optional)
+| Config | Test AUROC | 95% CI |
+|--------|-----------|--------|
+| Full (57 features) | 0.829 | [0.81, 0.85] |
+| No CAM/RASS | 0.780 | [0.75, 0.81] |
 
-Run `02_eda.ipynb` for feature distributions and missingness patterns, and `03_table1.ipynb` to generate baseline characteristics.
+![ROC Curve](figures/roc_curve.png)
+![Score Distribution](figures/score_distribution.png)
 
-### 5. Train the model
+DeLLiriuM (2025) reports ~78.1 AUROC for structured-EHR deep learning and ~82.5 for a 345M-parameter LLM on external validation. Direct comparison is difficult, but the conservative baseline (~0.80) sits near the structured-EHR bar with a much more efficient model.
 
-```bash
-python -m src.train \
-  --cohort cohort.csv \
-  --features features_hourly.csv \
-  --hid-dim 32 \
-  --n-layer 2 \
-  --epochs 50 \
-  --batch-size 32
-```
+---
 
-Outputs:
-- `checkpoints/best_model.pt` — best checkpoint by validation AUROC
-- `results/training_history.csv` — per-epoch metrics
-- `results/test_predictions.csv` — test-set predictions with AUROC/AUPRC and 95% bootstrap CI
+## Limitations
 
-### 6. Evaluate and visualize
+- Single database, single split: MIMIC-IV only, no external validation. 
+- Multi-seed CV has not been performed because of resource constraints
 
-Open `04_train_eval.ipynb` to generate ROC curves, precision-recall curves, and confusion matrices from the saved predictions.
+---
 
-### 7. Run tests
+## References
 
-```bash
-python -m pytest tests/
-```
-
+- Zhang et al. (2024). *Irregular Multivariate Time Series Forecasting: A Transformable Patching Graph Neural Networks Approach.* ICML 2024. - Architecture source (`readings/zhang24bw.pdf`)
+- Contreras et al. (2025). *DeLLiriuM: Using large language models for ICU delirium prediction.* - Clinical benchmark and evaluation protocol (`readings/nihpp-rs7216692v1.pdf`)
