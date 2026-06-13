@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
-# Slurm batch script — ICU delirium T-PatchGNN training on Oscar HPC (Brown)
+# Slurm batch script — delirium training with cam_icu + rass excluded
 #
-# Submit:  sbatch scripts/submit_train.sh
-# Dry-run: sbatch --test-only scripts/submit_train.sh
+# Motivation: cam_icu values are always 0 in the feature window (any CAM+
+# in hours 0-24 causes cohort exclusion), so the model learns from
+# assessment *frequency* via point_mask rather than score values — a form
+# of ascertainment leakage.  RASS is co-documented with CAM-ICU and carries
+# the same proxy signal.  This run removes both to obtain an honest AUROC.
 #
-# Verify GPU partition with:  sinfo -s | grep gpu
+# Submit:  sbatch scripts/submit_train_updated_features.sh
+# Dry-run: sbatch --test-only scripts/submit_train_updated_features.sh
 #
-#SBATCH --job-name=delirium_train
-#SBATCH --partition=gpu           # <-- adjust if needed (e.g. gpu-he, 3090-gcondo)
+#SBATCH --job-name=delirium_feature_updated
+#SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --mem=20G
-#SBATCH --cpus-per-task=4         # 2 DataLoader workers × 2 loaders (train + val)
+#SBATCH --cpus-per-task=4
 #SBATCH --time=12:00:00
-#SBATCH --output=logs/train_%j.out
-#SBATCH --error=logs/train_%j.err
+#SBATCH --output=logs/train_updated_features_%j.out
+#SBATCH --error=logs/train_no_cam_rass_%j.err
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=syang195@brown.edu
 
@@ -39,15 +43,15 @@ if torch.cuda.is_available():
 "
 
 # ── Create output directories ──────────────────────────────────────────────
-mkdir -p "$PROJECT/checkpoints"
-mkdir -p "$PROJECT/results"
+mkdir -p "$PROJECT/checkpoints_updated_features"
+mkdir -p "$PROJECT/results_updated_features/interpret"
 mkdir -p "$PROJECT/logs"
 
 # ── Train ──────────────────────────────────────────────────────────────────
 python -m src.train \
     --cohort       "$PROJECT/cohort.csv" \
     --features     "$PROJECT/features_hourly.csv" \
-    --output-dir   "$PROJECT/checkpoints" \
+    --output-dir   "$PROJECT/checkpoints_updated_features" \
     --max-hours    24 \
     --epochs       50 \
     --batch-size   32 \
@@ -65,38 +69,37 @@ python -m src.train \
     --patience     10 \
     --min-delta    1e-4 \
     --bootstrap-iters 200 \
-    --history-csv  "$PROJECT/results/training_history.csv" \
-    --predictions-csv "$PROJECT/results/test_predictions.csv"
+    --history-csv  "$PROJECT/results_updated_features/training_history.csv" \
+    --predictions-csv "$PROJECT/results_updated_features/test_predictions.csv"
 
 echo "Training complete."
-echo "Checkpoint  : $PROJECT/checkpoints/best_model.pt"
-echo "History     : $PROJECT/results/training_history.csv"
-echo "Predictions : $PROJECT/results/test_predictions.csv"
+echo "Checkpoint  : $PROJECT/checkpoints_updated_features/best_model.pt"
+echo "History     : $PROJECT/results_updated_features/training_history.csv"
+echo "Predictions : $PROJECT/results_updated_features/test_predictions.csv"
 
 # ── Generate visualisation plots ──────────────────────────────────────────
 python -c "
 from src.viz import make_all_plots
 make_all_plots(
-    'results/test_predictions.csv',
-    'results/training_history.csv',
-    output_dir='results',
+    'results_updated_features/test_predictions.csv',
+    'results_updated_features/training_history.csv',
+    output_dir='results_updated_features',
     show=False,
 )
 "
-echo "Plots saved to $PROJECT/results/"
+echo "Plots saved to $PROJECT/results_updated_features/"
 
 # ── Interpretability suite ────────────────────────────────────────────────
 echo ""
-echo "Running interpretability suite …"
-mkdir -p "$PROJECT/results/interpret"
+echo "Running interpretability suite ..."
 python -m src.interpret_eval \
-    --checkpoint  "$PROJECT/checkpoints/best_model.pt" \
+    --checkpoint  "$PROJECT/checkpoints_updated_features/best_model.pt" \
     --cohort      "$PROJECT/cohort.csv" \
     --features    "$PROJECT/features_hourly.csv" \
-    --output-dir  "$PROJECT/results/interpret" \
+    --output-dir  "$PROJECT/results_updated_features/interpret" \
     --batch-size  32 \
     --ig-steps    50 \
     --val-frac    0.10 \
     --test-frac   0.10 \
     --seed        42
-echo "Interpretability outputs saved to $PROJECT/results/interpret/"
+echo "Interpretability outputs saved to $PROJECT/results_updated_features/interpret/"

@@ -1,8 +1,8 @@
-"""Canonical 54 channel names — order matches ``01_cohort_extraction.ipynb`` CHART/LAB/DRUG dicts."""
+"""Canonical 57 channel names — order matches ``01_cohort_extraction.ipynb`` CHART/LAB/DRUG dicts."""
 
 from __future__ import annotations
 
-# Chart (14) + Lab (23) + Drug (17) — insertion order preserved (Py 3.7+).
+# Chart (16) + Lab (24) + Drug (17) — insertion order preserved (Py 3.7+).
 FEATURE_NAMES: list[str] = [
     # Chart
     "cam_icu",
@@ -19,6 +19,8 @@ FEATURE_NAMES: list[str] = [
     "temperature",
     "fio2",
     "peep",
+    "tidal_volume",      # itemids 224685 (observed) + 224686 (spontaneous) combined by hourly mean
+    "urine_sp_gravity",  # itemids 227471 (active) + 220799 (legacy) combined by hourly mean
     # Labs
     "lactate",
     "bun",
@@ -43,6 +45,7 @@ FEATURE_NAMES: list[str] = [
     "inr",
     "ptt",
     "ph",
+    "nt_probnp",    # itemid 50963 — top DeLLiriuM SHAP predictor; NT-proBNP is MIMIC-IV's form
     # Drugs
     "drug_propofol",
     "drug_dexmedetomidine",
@@ -64,16 +67,16 @@ FEATURE_NAMES: list[str] = [
 ]
 
 NUM_FEATURES = len(FEATURE_NAMES)
-assert NUM_FEATURES == 54, NUM_FEATURES
+assert NUM_FEATURES == 57, NUM_FEATURES
 
 _NAME_TO_IDX = {n: i for i, n in enumerate(FEATURE_NAMES)}
 NAME_TO_IDX = _NAME_TO_IDX  # public alias for vectorized dataset operations
 
-# Feature group slices (chart 0–13, labs 14–36, drugs 37–53)
-CHART_FEATURES = FEATURE_NAMES[:14]
-LAB_FEATURES   = FEATURE_NAMES[14:37]
-DRUG_FEATURES  = FEATURE_NAMES[37:]
-FEATURE_GROUPS = {"chart": CHART_FEATURES, "labs": LAB_FEATURES, "drugs": DRUG_FEATURES}
+# Feature group slices (chart 0–15, labs 16–39, drugs 40–56)
+CHART_FEATURES = FEATURE_NAMES[:16]
+LAB_FEATURES   = FEATURE_NAMES[16:40]
+DRUG_FEATURES  = FEATURE_NAMES[40:]
+FEATURE_GROUPS = {"chart": CHART_FEATURES, "lab": LAB_FEATURES, "drug": DRUG_FEATURES}
 
 
 def feature_to_index(name: str) -> int:

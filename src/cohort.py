@@ -1,4 +1,19 @@
-"""Build ICU stay cohort with LOS filter and optional delirium labels from ICD."""
+"""Build the ICU stay cohort with DeLLiriuM-compatible inclusion/exclusion gates.
+
+This module owns the **demographic / administrative** cohort only:
+
+  * first ICU stay per patient
+  * age ≥ 18
+  * ICU LOS ≥ ``min_los_hours``
+  * exclude death within ``exclude_early_death_hours`` of ICU admission
+  * exclude pre-existing dementia (ICD F03), TBI (S06), and chronic psychiatric
+    diagnoses (F20–F99, excluding F05 delirium itself)
+
+The **delirium label** is *not* assigned here — it comes from CAM-ICU + RASS
+chart events via :mod:`src.labeling` (the single source of truth). This is a
+deliberate change: the previous ICD-based ``delirium_icd`` label conflicted with
+the CAM/RASS label used for training.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +23,14 @@ import pandas as pd
 
 from src.mimic_paths import diagnoses_icd_path
 
-# ICD-10-CM: F05* delirium; R41.82 altered mental status (common proxy in claims).
-# ICD-9-CM: 293.0, 293.1, 780.97 — match without punctuation via string prefixes.
-DELIRIUM_ICD10_PREFIXES = ("F05", "R4182")
+# Pre-existing cognitive / psychiatric confounds to exclude (ICD-10-CM prefixes,
+# punctuation stripped). F05 (delirium) is intentionally NOT excluded.
+#   F03  — unspecified dementia
+#   S06  — intracranial / traumatic brain injury
+#   F20–F99 (except F05) — chronic psychiatric disorders
+EXCLUSION_ICD10_PREFIXES: tuple[str, ...] = tuple(
+    ["F03", "S06"] + [f"F{n:02d}" for n in range(20, 100) if n != 5]
+)
 
 
 def _normalize_icd_series(s: pd.Series) -> pd.Series:
@@ -23,91 +43,71 @@ def _normalize_icd_series(s: pd.Series) -> pd.Series:
     )
 
 
-def delirium_mask_vectorized(icd_code: pd.Series, icd_version: pd.Series) -> pd.Series:
+def exclusion_mask_vectorized(icd_code: pd.Series) -> pd.Series:
+    """Boolean Series: True where an ICD row is a dementia/TBI/psych confound.
+
+    Prefix matching is applied to normalized codes. ICD-9 equivalents are not
+    matched (documented limitation); MIMIC-IV is overwhelmingly ICD-10 for the
+    relevant period.
+    """
     n = _normalize_icd_series(icd_code)
-    v = pd.to_numeric(icd_version, errors="coerce")
-    icd10 = v == 10
-    icd9 = v == 9
-    d10 = icd10 & (
-        n.str.startswith(DELIRIUM_ICD10_PREFIXES[0])
-        | n.str.startswith(DELIRIUM_ICD10_PREFIXES[1])
-    )
-    d9 = icd9 & (
-        n.str.startswith("2930")
-        | n.str.startswith("2931")
-        | n.str.startswith("78097")
-    )
-    return d10 | d9
+    return n.str.startswith(EXCLUSION_ICD10_PREFIXES)
 
 
-def load_delirium_hadm_ids(
+def load_exclusion_hadm_ids(
     diag_path: Path | None = None,
     chunksize: int = 500_000,
 ) -> set[int]:
-    """hadm_ids with any delirium-related ICD row (hospitalization-level billing diagnoses)."""
+    """hadm_ids carrying any dementia/TBI/chronic-psych diagnosis."""
     path = diag_path or diagnoses_icd_path()
-    hadm_delirium: set[int] = set()
+    excl: set[int] = set()
     for chunk in pd.read_csv(
         path,
         compression="infer",
         chunksize=chunksize,
-        usecols=["hadm_id", "icd_code", "icd_version"],
+        usecols=["hadm_id", "icd_code"],
     ):
-        m = delirium_mask_vectorized(chunk["icd_code"], chunk["icd_version"])
+        m = exclusion_mask_vectorized(chunk["icd_code"])
         if m.any():
-            for h in chunk.loc[m, "hadm_id"].dropna().astype(int):
-                hadm_delirium.add(int(h))
-    return hadm_delirium
+            excl.update(chunk.loc[m, "hadm_id"].dropna().astype(int).tolist())
+    return excl
 
 
 def build_cohort(
     icustays: pd.DataFrame,
     admissions: pd.DataFrame,
     patients: pd.DataFrame,
-    delirium_hadm_ids: set[int] | None = None,
+    exclusion_hadm_ids: set[int] | None = None,
     *,
-    delirium_labels_known: bool = True,
     min_los_hours: float = 24.0,
+    min_age: int = 18,
     first_icu_only: bool = True,
     exclude_early_death_hours: float = 48.0,
 ) -> pd.DataFrame:
-    """Build ICU cohort with DeLLiriuM-compatible inclusion/exclusion criteria.
+    """Build the demographic ICU cohort (no delirium label).
 
-    Parameters
-    ----------
-    first_icu_only:
-        Keep only each patient's first ICU admission (DeLLiriuM criterion).
-    exclude_early_death_hours:
-        Drop stays where the patient dies within this many hours of ICU admission
-        (DeLLiriuM excludes deaths within 48 h).
+    Funnel order mirrors ``01_cohort_extraction.ipynb`` so the two agree:
+    merge → LOS → age → first ICU → early-death → ICD exclusions.
     """
     icu = icustays.copy()
     icu["intime"] = pd.to_datetime(icu["intime"], errors="coerce")
     icu["outtime"] = pd.to_datetime(icu["outtime"], errors="coerce")
     icu["los_hours"] = (icu["outtime"] - icu["intime"]).dt.total_seconds() / 3600.0
+
+    # --- ICU LOS ≥ threshold (inclusive; matches CLAUDE.md "LOS ≥ 24 h") ---
     icu = icu[icu["los_hours"] >= min_los_hours].copy()
 
     adm_cols = [
-        "hadm_id",
-        "admittime",
-        "dischtime",
-        "deathtime",
-        "admission_type",
-        "admission_location",
-        "discharge_location",
-        "insurance",
-        "language",
-        "marital_status",
-        "race",
-        "hospital_expire_flag",
+        "hadm_id", "admittime", "dischtime", "deathtime", "admission_type",
+        "admission_location", "discharge_location", "insurance", "language",
+        "marital_status", "race", "hospital_expire_flag",
     ]
     adm_keep = [c for c in adm_cols if c in admissions.columns]
     adm = admissions[adm_keep].drop_duplicates(subset=["hadm_id"])
-
     out = icu.merge(adm, on="hadm_id", how="left")
+
     pat_cols = [
-        c
-        for c in ["subject_id", "gender", "anchor_age", "anchor_year", "dod"]
+        c for c in ["subject_id", "gender", "anchor_age", "anchor_year", "dod"]
         if c in patients.columns
     ]
     pat = patients[pat_cols].drop_duplicates(subset=["subject_id"])
@@ -118,21 +118,23 @@ def build_cohort(
         out["anchor_age"] + (adm_year - out["anchor_year"])
     ).clip(upper=91)
 
-    # --- First ICU admission per patient (DeLLiriuM criterion) ---
+    # --- Adults only (≥ min_age) ---
+    age_basis = out["age_at_admission"].fillna(out.get("anchor_age"))
+    out = out[age_basis >= min_age].copy()
+
+    # --- First ICU admission per patient ---
     if first_icu_only:
         out = out.sort_values("intime").groupby("subject_id", as_index=False).first()
 
-    # --- Exclude early in-hospital deaths (DeLLiriuM: exclude deaths within 48 h) ---
+    # --- Exclude early in-hospital deaths ---
     if exclude_early_death_hours > 0 and "deathtime" in out.columns:
         deathtime = pd.to_datetime(out["deathtime"], errors="coerce")
         hours_to_death = (deathtime - out["intime"]).dt.total_seconds() / 3600.0
         early_death = deathtime.notna() & (hours_to_death < exclude_early_death_hours)
         out = out[~early_death].copy()
 
-    if not delirium_labels_known:
-        out["delirium_icd"] = pd.Series(pd.NA, index=out.index, dtype="Int8")
-    else:
-        ids = delirium_hadm_ids or set()
-        out["delirium_icd"] = out["hadm_id"].isin(ids).astype("int8")
+    # --- Exclude dementia / TBI / chronic-psych confounds (by hadm_id) ---
+    if exclusion_hadm_ids:
+        out = out[~out["hadm_id"].isin(exclusion_hadm_ids)].copy()
 
-    return out
+    return out.reset_index(drop=True)

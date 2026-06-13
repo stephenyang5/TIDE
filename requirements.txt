@@ -1,0 +1,32 @@
+# Pinned environment for the ICU Delirium Prediction project.
+# Captured from the working .venv on Oscar (Python 3.12.8).
+#
+# Install with:
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Note: the torch wheel below is the CUDA 12.4 build. On a CPU-only or
+# different-CUDA machine, install the matching torch build first, e.g.:
+#   pip install torch==2.6.0  --index-url https://download.pytorch.org/whl/cpu
+# then `pip install -r requirements.txt`.
+
+# --- Core numerics / data ---
+numpy==1.26.4
+pandas==3.0.1
+scipy==1.17.1
+scikit-learn==1.8.0
+
+# --- Deep learning ---
+torch==2.6.0
+
+# --- Plotting ---
+matplotlib==3.10.8
+seaborn==0.13.2
+
+# --- Notebooks ---
+jupyter==1.1.1
+notebook==7.5.5
+ipykernel==7.2.0
+
+# --- Optional (interpretability UMAP projection; code degrades gracefully if absent) ---
+# umap-learn==0.5.6

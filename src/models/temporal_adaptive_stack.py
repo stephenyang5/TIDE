@@ -82,6 +82,10 @@ class TemporalAdaptiveGNNStack(nn.Module):
                 GCN(d_model, d_model, dropout, support_len=self.supports_len, order=hop)
             )
 
+        # Set to a list to capture per-layer adjacency matrices during forward();
+        # set back to None to disable capture (default).
+        self._graph_cache: list[torch.Tensor] | None = None
+
     def forward(
         self,
         x: torch.Tensor,
@@ -135,6 +139,8 @@ class TemporalAdaptiveGNNStack(nn.Module):
             nv2 = nv2 + x_p2.permute(0, 2, 3, 1)
 
             adp = F.softmax(F.relu(torch.matmul(nv1, nv2)), dim=-1)
+            if self._graph_cache is not None:
+                self._graph_cache.append(adp.detach().cpu())
             supports = [s.to(x.device) for s in self.static_supports] + [adp]
 
             x_g = self.gconv[layer](x.permute(0, 3, 1, 2), supports)

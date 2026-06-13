@@ -1,6 +1,6 @@
 # ICU Delirium Onset Prediction with T-PatchGNN
 
-This project predicts ICU delirium onset from the first 24 hours of physiological monitoring data by adapting T-PatchGNN — an irregular multivariate time-series architecture from ICML 2024 — for binary classification on MIMIC-IV. The approach is motivated by two key readings: Zhang et al. (2024) introduce T-PatchGNN, which segments sparse, irregularly-sampled time series into fixed-size patches and processes them through a combination of time-aware convolution (TTCN), per-patch adaptive graph construction, and intra-series Transformer attention, making it well-suited to the heterogeneous rhythms of ICU charting; and the DeLLiriuM paper (2025) establishes the clinical benchmark (AUROC ~82.5 via an LLM, vs. ~78.1 for structured-EHR baselines) and mandates the precise cohort criteria and label definition used here — delirium onset is a CAM-ICU-positive assessment with RASS ≥ −3 occurring after the first 24 hours, excluding patients with prevalent delirium, early death, dementia, or TBI. The full pipeline covers cohort extraction from MIMIC-IV, 54-feature engineering across vitals, labs, and sedative/vasopressor drugs, 8-hour patch construction with faithful observation masking, class-weighted training, and evaluation with bootstrap confidence intervals.
+This project predicts ICU delirium onset from the first 24 hours of physiological monitoring data by adapting T-PatchGNN — an irregular multivariate time-series architecture from ICML 2024 — for binary classification on MIMIC-IV. The approach is motivated by two key readings: Zhang et al. (2024) introduce T-PatchGNN, which segments sparse, irregularly-sampled time series into fixed-size patches and processes them through a combination of time-aware convolution (TTCN), per-patch adaptive graph construction, and intra-series Transformer attention, making it well-suited to the heterogeneous rhythms of ICU charting; and the DeLLiriuM paper (2025) establishes the clinical benchmark (AUROC ~82.5 via an LLM, vs. ~78.1 for structured-EHR baselines) and mandates the precise cohort criteria and label definition used here — delirium onset is a CAM-ICU-positive assessment with RASS ≥ −3 occurring after the first 24 hours, excluding patients with prevalent delirium, early death, dementia, or TBI. The full pipeline covers cohort extraction from MIMIC-IV, 57-feature engineering across vitals, labs, and sedative/vasopressor drugs, 8-hour patch construction with faithful observation masking, class-weighted training, and evaluation with bootstrap confidence intervals.
 
 ## Readings
 
@@ -17,7 +17,7 @@ This project predicts ICU delirium onset from the first 24 hours of physiologica
 | `src/mimic_paths.py` | Centralizes MIMIC-IV path resolution, reading from `/oscar/data/shared/ursa/mimic-iv` or a `MIMIC_ROOT` environment variable, with helpers for each module (ICU, HOSP, ED, NOTE). |
 | `src/cohort.py` | Builds the DeLLiriuM-compliant patient cohort by merging `icustays`, `admissions`, and `patients`, then enforcing criteria: first ICU stay only, age ≥ 18, LOS ≥ 24 h, no death within 48 h, and optional ICD-based delirium labeling. |
 | `src/build_cohort.py` | CLI wrapper for `cohort.py` that scans `diagnoses_icd` for delirium-related ICD codes and writes the cohort to a compressed CSV. |
-| `src/feature_vocab.py` | Defines the canonical, immutably ordered list of 54 features (14 chart, 23 labs, 17 drugs) and the `NAME_TO_IDX` mapping used for consistent tensor indexing throughout the project. |
+| `src/data/feature_vocab.py` | Defines the canonical, immutably ordered list of 57 features (16 chart, 24 labs, 17 drugs) and the `NAME_TO_IDX` mapping used for consistent tensor indexing throughout the project. |
 | `src/data/patch_dataset.py` | Implements `ICUPatchDataset`, which converts long-format hourly features into `(V, P, L)` patch tensors with three-level masking (point, patch, stay), computes train-split-only min-max normalization, and provides `collate_patches()` for dynamic-length batching. |
 
 ## Source: Model Architecture
@@ -49,7 +49,7 @@ This project predicts ICU delirium onset from the first 24 hours of physiologica
 
 | File | Description |
 |------|-------------|
-| `01_cohort_extraction.ipynb` | Runs the full data pipeline: loads MIMIC-IV tables, applies DeLLiriuM cohort criteria, extracts all 54 features from chart/lab/drug tables, applies LOCF, and writes `features_hourly.csv` and `features_hourly_prelocf.csv`. |
+| `01_cohort_extraction.ipynb` | Runs the full data pipeline: loads MIMIC-IV tables, applies DeLLiriuM cohort criteria, extracts all 57 features from chart/lab/drug tables, applies LOCF, and writes `features_hourly.csv` and `features_hourly_prelocf.csv`. |
 | `02_eda.ipynb` | Exploratory data analysis of patient demographics, feature distributions, missingness patterns, and class balance in the extracted cohort. |
 | `03_table1.ipynb` | Generates Table 1 baseline characteristics stratified by delirium label for clinical reporting. |
 | `04_train_eval.ipynb` | Orchestrates model training (if not using the CLI) and visualizes results including ROC curves, precision-recall curves, and confusion matrices. |
@@ -94,7 +94,7 @@ Applies exclusion criteria and writes `cohort.csv` with binary delirium labels.
 
 ### 3. Extract features
 
-Open and run `01_cohort_extraction.ipynb` to extract 54 features from MIMIC-IV chart, lab, and drug tables and produce:
+Open and run `01_cohort_extraction.ipynb` to extract 57 features from MIMIC-IV chart, lab, and drug tables and produce:
 - `features_hourly.csv` — post-LOCF observations used for training
 - `features_hourly_prelocf.csv` — pre-LOCF observations used for faithful masking
 

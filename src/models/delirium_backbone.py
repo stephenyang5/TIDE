@@ -105,3 +105,27 @@ class DeliriumClassifier(nn.Module):
         h_pooled = h_pooled.mean(dim=1)  # (B, D)
 
         return self.classifier(self.drop(h_pooled))  # (B, 1)
+
+    def forward_explain(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:
+        """Like forward() but also returns intermediate representations for interpretability.
+
+        Returns a dict with:
+          logit            (B, 1)   — raw logit (apply sigmoid for probability)
+          patch_embeddings (B,V,P,D) — contextual patch-level hidden states
+          var_embeddings   (B,V,D)  — after masked pooling over patches
+          embedding        (B,D)    — final patient representation before classifier
+        """
+        h = self.backbone(batch)  # (B, V, P, D)
+
+        spm = batch["stay_patch_mask"].unsqueeze(1).unsqueeze(-1)  # (B, 1, P, 1)
+        valid_count = spm.sum(dim=2).clamp(min=1.0)               # (B, 1, 1)
+        h_var = (h * spm).sum(dim=2) / valid_count                 # (B, V, D)
+        h_pat = h_var.mean(dim=1)                                  # (B, D)
+        logit = self.classifier(self.drop(h_pat))                  # (B, 1)
+
+        return {
+            "logit":            logit,
+            "patch_embeddings": h,
+            "var_embeddings":   h_var,
+            "embedding":        h_pat,
+        }

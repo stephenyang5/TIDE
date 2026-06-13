@@ -26,6 +26,8 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
 from src.data.patch_dataset import ICUPatchDataset, collate_patches, compute_per_feature_minmax
+from src.data.batch_mask import mask_excluded_features
+from src.data.feature_vocab import NAME_TO_IDX
 from src.models.delirium_backbone import DeliriumClassifier
 
 
@@ -86,6 +88,7 @@ def evaluate(
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
+    exclude_idxs: list[int] | None = None,
 ) -> tuple[float, float, np.ndarray, np.ndarray, list[int]]:
     """Return ``(AUROC, AUPRC, probs, labels, stay_ids)`` on *loader*.
 
@@ -93,12 +96,14 @@ def evaluate(
     directly from each batch so ordering is guaranteed correct regardless of
     DataLoader shuffle state.
     """
+    _excl = exclude_idxs or []
     model.eval()
     all_probs: list[np.ndarray]  = []
     all_labels: list[np.ndarray] = []
     all_sids: list[int]          = []
 
     for batch in loader:
+        batch  = mask_excluded_features(batch, _excl)
         batch  = to_device(batch, device)
         logits = model(batch).squeeze(-1)          # (B,)
         probs  = torch.sigmoid(logits).cpu().numpy()
@@ -163,6 +168,11 @@ def main(argv: list[str] | None = None) -> None:
                         help="Early-stopping patience (val AUROC); 0 = disabled")
     parser.add_argument("--min-delta",   type=float, default=1e-4,
                         help="Minimum AUROC improvement to reset patience counter")
+    # Feature exclusion
+    parser.add_argument("--exclude-features", nargs="*", default=[],
+                        metavar="FEATURE",
+                        help="Feature names to permanently zero out (values + mask). "
+                             "E.g. --exclude-features cam_icu rass")
     # Evaluation / outputs
     parser.add_argument("--bootstrap-iters", type=int, default=200,
                         help="Bootstrap CI iterations; 0 = skip")
@@ -176,6 +186,16 @@ def main(argv: list[str] | None = None) -> None:
     np.random.seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
+
+    # Resolve excluded feature names → indices once
+    exclude_idxs: list[int] = []
+    for name in (args.exclude_features or []):
+        if name not in NAME_TO_IDX:
+            raise ValueError(f"--exclude-features: unknown feature '{name}'. "
+                             f"Valid names: {list(NAME_TO_IDX)}")
+        exclude_idxs.append(NAME_TO_IDX[name])
+    if exclude_idxs:
+        print(f"Excluding features : {args.exclude_features} (indices {exclude_idxs})")
 
     # ── Load full cohort + features once ──────────────────────────────────
     print("Loading dataset …")
@@ -293,6 +313,7 @@ def main(argv: list[str] | None = None) -> None:
         log_every  = max(1, n_batches // 5)   # print ~5 progress updates per epoch
 
         for batch_i, batch in enumerate(train_loader, 1):
+            batch  = mask_excluded_features(batch, exclude_idxs)
             batch  = to_device(batch, device)
             logits = model(batch).squeeze(-1)          # (B,)
             loss   = criterion(logits, batch["label"].float())
@@ -312,7 +333,7 @@ def main(argv: list[str] | None = None) -> None:
                 )
 
         avg_loss = total_loss / max(n_batches, 1)
-        val_auroc, val_auprc, _, _, _ = evaluate(model, val_loader, device)
+        val_auroc, val_auprc, _, _, _ = evaluate(model, val_loader, device, exclude_idxs)
         current_lr = optimizer.param_groups[0]["lr"]
 
         print(
@@ -368,7 +389,7 @@ def main(argv: list[str] | None = None) -> None:
     model.load_state_dict(ckpt["model_state_dict"])
 
     test_auroc, test_auprc, test_probs, test_labels, test_sids = evaluate(
-        model, test_loader, device
+        model, test_loader, device, exclude_idxs
     )
     print(f"Test AUROC : {test_auroc:.4f}")
     print(f"Test AUPRC : {test_auprc:.4f}")
