@@ -3,25 +3,9 @@
 All plot functions:
   - Accept explicit data arguments (no global state).
   - Save a PNG to *output_path* (parent dirs created automatically).
-  - Optionally display inline when ``show=True`` (e.g. inside Jupyter).
+  - Optionally display inline when show=True (e.g. inside Jupyter).
   - Are safe for headless/Slurm use (Agg backend forced before pyplot import).
 
-Usage
------
-From a notebook::
-
-    from src.viz import make_all_plots
-    make_all_plots("results/test_predictions.csv",
-                   "results/training_history.csv",
-                   output_dir="results", show=True)
-
-From the command line::
-
-    python -c "
-    from src.viz import make_all_plots
-    make_all_plots('results/test_predictions.csv',
-                   'results/training_history.csv')
-    "
 """
 
 from __future__ import annotations
@@ -31,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 import matplotlib
-matplotlib.use("Agg")           # force non-interactive backend before pyplot import
+matplotlib.use("Agg") # force non-interactive backend before pyplot import
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -57,9 +41,7 @@ _FIG_DPI = 150
 RESULTS_DIR = Path("results")
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+# internal helpers
 
 def _save(fig: plt.Figure, output_path: Path | str, show: bool) -> None:
     output_path = Path(output_path)
@@ -96,9 +78,7 @@ def _bootstrap_roc_band(
             np.percentile(mat, 100 * (1 - alpha / 2), axis=0))
 
 
-# ---------------------------------------------------------------------------
-# 1. Training curves
-# ---------------------------------------------------------------------------
+# Training curves
 
 def plot_training_curves(
     history_csv: str | Path,
@@ -111,7 +91,7 @@ def plot_training_curves(
     Parameters
     ----------
     history_csv
-        Path to ``training_history.csv`` written by ``src.train``.
+        Path to training_history.csv written by src.train.
         Expected columns: epoch, train_loss, val_auroc, val_auprc, lr.
     """
     df = pd.read_csv(history_csv)
@@ -161,10 +141,7 @@ def plot_training_curves(
     _save(fig, output_path, show)
 
 
-# ---------------------------------------------------------------------------
-# 2. ROC curve with bootstrap CI
-# ---------------------------------------------------------------------------
-
+# ROC curve with bootstrap CI
 def plot_roc_curve(
     labels: np.ndarray,
     probs: np.ndarray,
@@ -179,10 +156,10 @@ def plot_roc_curve(
     Parameters
     ----------
     auroc_ci
-        Pre-computed (lo, hi) tuple from :func:`src.train.bootstrap_ci`.
-        If ``None`` the CI band is computed internally.
+        Pre-computed (lo, hi) tuple from :func: src.train.bootstrap_ci.
+        If None the CI band is computed internally.
     bootstrap_n
-        Number of bootstrap iterations when ``auroc_ci`` is ``None``.
+        Number of bootstrap iterations when auroc_ci is None.
     """
     fpr, tpr, _ = roc_curve(labels, probs)
     auroc_val = roc_auc_score(labels, probs)
@@ -199,11 +176,11 @@ def plot_roc_curve(
 
     if auroc_ci is not None:
         ax.set_title(
-            f"ROC Curve  —  AUROC {auroc_val:.4f}  "
+            f"ROC Curve — AUROC {auroc_val:.4f}"
             f"[{auroc_ci[0]:.4f}, {auroc_ci[1]:.4f}]"
         )
     else:
-        ax.set_title(f"ROC Curve  —  AUROC {auroc_val:.4f}")
+        ax.set_title(f"ROC Curve — AUROC {auroc_val:.4f}")
 
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
@@ -214,9 +191,7 @@ def plot_roc_curve(
     _save(fig, output_path, show)
 
 
-# ---------------------------------------------------------------------------
-# 3. Precision-Recall curve
-# ---------------------------------------------------------------------------
+# Precision-Recall curve
 
 def plot_pr_curve(
     labels: np.ndarray,
@@ -232,7 +207,7 @@ def plot_pr_curve(
     Parameters
     ----------
     auprc_ci
-        Pre-computed (lo, hi) from ``bootstrap_ci``.
+        Pre-computed (lo, hi) from bootstrap_ci.
     prevalence
         If provided, draws a horizontal dashed line at this y-level (the
         random-classifier PR baseline when all predictions equal prevalence).
@@ -250,11 +225,11 @@ def plot_pr_curve(
 
     if auprc_ci is not None:
         ax.set_title(
-            f"Precision-Recall Curve  —  AUPRC {auprc_val:.4f}  "
+            f"Precision-Recall Curve — AUPRC {auprc_val:.4f}  "
             f"[{auprc_ci[0]:.4f}, {auprc_ci[1]:.4f}]"
         )
     else:
-        ax.set_title(f"Precision-Recall Curve  —  AUPRC {auprc_val:.4f}")
+        ax.set_title(f"Precision-Recall Curve — AUPRC {auprc_val:.4f}")
 
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
@@ -265,9 +240,7 @@ def plot_pr_curve(
     _save(fig, output_path, show)
 
 
-# ---------------------------------------------------------------------------
-# 4. Calibration
-# ---------------------------------------------------------------------------
+# Calibration
 
 def plot_calibration(
     labels: np.ndarray,
@@ -280,7 +253,7 @@ def plot_calibration(
 ) -> None:
     """Reliability diagram (calibration plot).
 
-    ``strategy="quantile"`` ensures equal sample counts per bin — recommended
+    strategy="quantile" ensures equal sample counts per bin
     for imbalanced datasets (10 % positive rate means uniform bins mostly
     contain only negatives).
 
@@ -302,7 +275,7 @@ def plot_calibration(
 
     ax.set_xlabel("Mean Predicted Probability")
     ax.set_ylabel("Fraction Positive")
-    ax.set_title(f"Calibration Plot  ({strategy} bins, n_bins={n_bins})")
+    ax.set_title(f"Calibration Plot ({strategy} bins, n_bins={n_bins})")
     ax.legend(fontsize=9)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
@@ -310,9 +283,7 @@ def plot_calibration(
     _save(fig, output_path, show)
 
 
-# ---------------------------------------------------------------------------
 # 5. Score distribution
-# ---------------------------------------------------------------------------
 
 def plot_score_distribution(
     labels: np.ndarray,
@@ -355,10 +326,7 @@ def plot_score_distribution(
     _save(fig, output_path, show)
 
 
-# ---------------------------------------------------------------------------
 # 6. Confusion matrix at threshold
-# ---------------------------------------------------------------------------
-
 def plot_confusion_at_threshold(
     labels: np.ndarray,
     probs: np.ndarray,
@@ -373,15 +341,15 @@ def plot_confusion_at_threshold(
     Row-normalised values are shown in the heatmap; raw counts are annotated.
     """
     preds = (probs >= threshold).astype(int)
-    cm    = confusion_matrix(labels, preds)  # [[TN, FP], [FN, TP]]
+    cm = confusion_matrix(labels, preds)  # [[TN, FP], [FN, TP]]
 
     tn, fp, fn, tp = cm.ravel()
-    sensitivity  = tp / max(tp + fn, 1)
-    specificity  = tn / max(tn + fp, 1)
-    ppv          = tp / max(tp + fp, 1)
-    npv          = tn / max(tn + fn, 1)
-    f1           = 2 * tp / max(2 * tp + fp + fn, 1)
-    metrics      = dict(sensitivity=sensitivity, specificity=specificity,
+    sensitivity = tp / max(tp + fn, 1)
+    specificity = tn / max(tn + fp, 1)
+    ppv = tp / max(tp + fp, 1)
+    npv = tn / max(tn + fn, 1)
+    f1 = 2 * tp / max(2 * tp + fp + fn, 1)
+    metrics = dict(sensitivity=sensitivity, specificity=specificity,
                         ppv=ppv, npv=npv, f1=f1,
                         tp=int(tp), fp=int(fp), fn=int(fn), tn=int(tn))
 
@@ -418,9 +386,7 @@ def plot_confusion_at_threshold(
     return metrics
 
 
-# ---------------------------------------------------------------------------
 # Convenience wrapper
-# ---------------------------------------------------------------------------
 
 def make_all_plots(
     predictions_csv: str | Path,
@@ -436,10 +402,10 @@ def make_all_plots(
     Parameters
     ----------
     predictions_csv
-        ``results/test_predictions.csv`` from ``src.train``
+        results/test_predictions.csv from src.train
         (columns: stay_id, label, prob).
     history_csv
-        ``results/training_history.csv`` from ``src.train``
+        results/training_history.csv from src.train
         (columns: epoch, train_loss, val_auroc, val_auprc, lr).
     bootstrap_iters
         Iterations for bootstrap CI band on the ROC curve.
@@ -448,14 +414,14 @@ def make_all_plots(
     output_dir
         Directory where all PNGs are saved.
     show
-        Call ``plt.show()`` after each figure (for interactive use).
+        Call plt.show() after each figure (for interactive use).
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     preds = pd.read_csv(predictions_csv)
     labels = preds["label"].to_numpy(dtype=int)
-    probs  = preds["prob"].to_numpy(dtype=float)
+    probs = preds["prob"].to_numpy(dtype=float)
     prevalence = float(labels.mean())
 
     # Validate
@@ -505,10 +471,10 @@ def make_all_plots(
         show=show,
     )
 
-    # Confusion at Youden's J optimal threshold
+    # Confusion at optimal threshold
     fpr, tpr, thresholds = roc_curve(labels, probs)
-    j_idx    = int(np.argmax(tpr - fpr))
-    opt_thr  = float(thresholds[j_idx])
+    j_idx = int(np.argmax(tpr - fpr))
+    opt_thr = float(thresholds[j_idx])
     metrics_opt = plot_confusion_at_threshold(
         labels, probs, threshold=opt_thr,
         output_path=output_dir / f"confusion_optimal_{opt_thr:.3f}.png",

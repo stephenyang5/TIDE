@@ -1,7 +1,7 @@
 """
-Intra-series Transformer over patches + inter-series adaptive GCN (t-PatchGNN ``IMTS_Model`` core).
+Intra-series Transformer over patches + inter-series adaptive GCN (t-PatchGNN IMTS_Model core).
 
-Input ``x`` is patch embeddings ``(B, V, P, D)`` (e.g. from ``PatchTTCNEncoder``).
+Input x is patch embeddings (B, V, P, D) (e.g. from PatchTTCNEncoder).
 """
 
 from __future__ import annotations
@@ -106,10 +106,10 @@ class TemporalAdaptiveGNNStack(nn.Module):
 
         # PyTorch TransformerEncoder produces NaN when ALL positions are masked.
         # Pre-compute a safe mask that unmasks one token for those rows.
-        all_masked = key_padding_flat.all(dim=-1)          # (B*V,) bool
+        all_masked = key_padding_flat.all(dim=-1) # (B*V,) bool
         if all_masked.any():
             safe_kp = key_padding_flat.clone()
-            safe_kp[all_masked, 0] = False                 # unmask first token as anchor
+            safe_kp[all_masked, 0] = False # unmask first token as anchor
         else:
             safe_kp = key_padding_flat
 

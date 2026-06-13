@@ -1,8 +1,8 @@
 """
 Patch-level TTCN encoder (t-PatchGNN IMTS_Model front block only).
 
-Consumes batched tensors from ``collate_patches`` and returns
-``[B, V, P, hid_dim]`` patch embeddings plus ``patch_mask`` / ``stay_patch_mask``.
+Consumes batched tensors from collate_patches and returns
+[B, V, P, hid_dim] patch embeddings plus patch_mask / stay_patch_mask.
 
 Downstream (intra-series Transformer + GNN) should consume this output.
 """

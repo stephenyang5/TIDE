@@ -1,7 +1,4 @@
 """Canonical 54 channel names — order matches ``01_cohort_extraction.ipynb`` CHART/LAB/DRUG dicts."""
-
-from __future__ import annotations
-
 # Chart (14) + Lab (23) + Drug (17) — insertion order preserved (Py 3.7+).
 FEATURE_NAMES: list[str] = [
     # Chart
@@ -67,7 +64,7 @@ NUM_FEATURES = len(FEATURE_NAMES)
 assert NUM_FEATURES == 54, NUM_FEATURES
 
 _NAME_TO_IDX = {n: i for i, n in enumerate(FEATURE_NAMES)}
-NAME_TO_IDX = _NAME_TO_IDX  # public alias for vectorized dataset operations
+NAME_TO_IDX = _NAME_TO_IDX 
 
 # Feature group slices (chart 0–13, labs 14–36, drugs 37–53)
 CHART_FEATURES = FEATURE_NAMES[:14]

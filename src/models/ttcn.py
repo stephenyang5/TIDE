@@ -1,6 +1,6 @@
 """Transformable Time-aware Convolution (TTCN) from t-PatchGNN.
 
-Ported from ``tPatchGNN/model/tPatchGNN.py`` (``TTCN`` and filter generator MLP).
+Ported from tPatchGNN/model/tPatchGNN.py (TTCN and filter generator MLP).
 """
 
 from __future__ import annotations

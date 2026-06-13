@@ -12,3 +12,5 @@ cohort.csv
 features_hourly_prelocf.csv
 features_hourly.csv
 raw_features_extracted.csv
+tests/
+src/mimic_paths.py

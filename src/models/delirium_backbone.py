@@ -43,8 +43,8 @@ class DeliriumTPatchBackbone(nn.Module):
 
     def forward(self, batch: dict[str, Any]):
         """
-        batch from ``collate_patches``: ``values``, ``times``, ``point_mask``, ``stay_patch_mask``.
-        Returns patch-level hidden states ``(B, V, P, D)`` for a future classification head.
+        batch from collate_patches: values, times, point_mask, stay_patch_mask.
+        Returns patch-level hidden states (B, V, P, D) for a future classification head.
         """
         z, pm = self.patch_encoder(
             batch["values"], batch["times"], batch["point_mask"]
@@ -55,14 +55,14 @@ class DeliriumTPatchBackbone(nn.Module):
 class DeliriumClassifier(nn.Module):
     """T-PatchGNN backbone + masked mean pooling + binary classification head.
 
-    Pooling strategy (paper-aligned):
-      1. ``DeliriumTPatchBackbone`` → ``(B, V, P, D)``
-      2. Masked mean over patch dim using ``stay_patch_mask`` → ``(B, V, D)``
-      3. Mean over variable dim → ``(B, D)``
-      4. Dropout + ``Linear(D, 1)`` → logit ``(B, 1)``
+    Pooling strategy:
+      1. DeliriumTPatchBackbone to (B, V, P, D)
+      2. Masked mean over patch dim using stay_patch_mask to (B, V, D)
+      3. Mean over variable dim to (B, D)
+      4. Dropout + Linear(D, 1) to logit (B, 1)
 
-    Use with ``BCEWithLogitsLoss``.  The batch dict must already be on the
-    target device when passed to ``forward``.
+    Use with BCEWithLogitsLoss. The batch dict must already be on the
+    target device when passed to forward.
     """
 
     def __init__(
@@ -98,10 +98,10 @@ class DeliriumClassifier(nn.Module):
 
         # Masked mean over patch dim — stay_patch_mask (B, P) marks valid patches
         spm = batch["stay_patch_mask"].unsqueeze(1).unsqueeze(-1)  # (B, 1, P, 1)
-        valid_count = spm.sum(dim=2).clamp(min=1.0)               # (B, 1, 1)
-        h_pooled = (h * spm).sum(dim=2) / valid_count             # (B, V, D)
+        valid_count = spm.sum(dim=2).clamp(min=1.0) # (B, 1, 1)
+        h_pooled = (h * spm).sum(dim=2) / valid_count # (B, V, D)
 
         # Mean over variable dim
-        h_pooled = h_pooled.mean(dim=1)  # (B, D)
+        h_pooled = h_pooled.mean(dim=1) # (B, D)
 
-        return self.classifier(self.drop(h_pooled))  # (B, 1)
+        return self.classifier(self.drop(h_pooled)) # (B, 1)
