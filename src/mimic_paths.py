@@ -37,7 +37,7 @@ def note_dir() -> Path:
 
 
 def icustays_path() -> Path:
-    return icu_dir() / "icustays.csv.gz"
+    return icu_dir() / "icustays.csv"
 
 
 def admissions_path() -> Path:
